@@ -9,6 +9,7 @@ AbleSci自动签到脚本
 更新日期：2025年9月2日 >> 修复日志输出时间为北京时间 ; 修复签到前后用户信息显示 ; 优化登录失败处理 ; 优化签到已签到处理
 更新日期：2025年9月3日 >> 保护隐私，不在日志中显示完整邮箱和用户名
 更新日期：2026年3月22日 >> 支持本地.env文件; 使用zoneinfo/pytz处理时区; 统一通知器; 修复zoneinfo时区查找失败问题,增加回退机制; 修复已签到处理逻辑; 
+更新日期：2026年9月30日 >> 修复 GitHub Actions set-output 废弃警告; 清理死代码; 补全隐私隐藏逻辑
 作者：daitcl
 """
 
@@ -21,7 +22,6 @@ import json
 import datetime
 from pathlib import Path
 from datetime import timezone, timedelta
-
 
 try:
     from zoneinfo import ZoneInfo
@@ -82,13 +82,20 @@ def load_env_file():
 
     if ENV_ACCOUNTS in os.environ:
         val = os.environ[ENV_ACCOUNTS]
-        # 2026-09-15 隐私修复：原版直接按原样打印账号行，会把密码明文写进
-        # cron 输出/日志。现在只保留邮箱前缀，密码一律隐去。
+        # 2026-09-30 隐私修复：兼容 :  ;  | 三种分隔符
         safe_lines = []
         for line in val.splitlines():
-            if ":" in line:
-                local = line.split(":", 1)[0].strip()
-                safe_lines.append((local[:2] + "***") if local else "***")
+            line = line.strip()
+            if not line:
+                continue
+            # 尝试所有分隔符，取第一个出现的
+            local_part = line
+            for sep in (':', ';', '|'):
+                if sep in line:
+                    local_part = line.split(sep, 1)[0].strip()
+                    break
+            if local_part:
+                safe_lines.append((local_part[:2] + "***") if len(local_part) >= 2 else "***")
             else:
                 safe_lines.append("***")
         safe = " / ".join(safe_lines)
@@ -355,7 +362,6 @@ class AbleSciAuto:
                 try:
                     result = response.json()
                     if result.get("code") == 0:
-                        msg = result.get("msg", "").replace("签到成功，", "", 1)
                         self.log(f"签到成功: {result.get('msg')}", "success")
                         
                         data = result.get("data", {})
@@ -370,8 +376,7 @@ class AbleSciAuto:
                     else:
                         msg = result.get('msg', '')
                         if "您今天已于" in msg:
-                            msg = result.get("msg", "").replace("签到失败，", "", 1)
-                            self.log(f"今日已签到: {msg}", "info")
+                            self.log(f"今日已签到: {msg.replace('签到失败，', '', 1)}", "info")
                             return True
                         else:
                             self.log(f"签到失败: {msg}", "error")
@@ -491,11 +496,11 @@ def main():
     if global_notifier.notify_enabled:
         global_notifier.send_notification()
     
+    # 2026-09-30 修复：改用 $GITHUB_OUTPUT + heredoc 替代废弃的 ::set-output::
     if os.getenv("GITHUB_ACTIONS") == "true":
         content = global_notifier.get_content()
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             f.write(f'log_content<<EOF\n{content}\nEOF\n')
-        print(f"::set-output name=log_content::{global_notifier.get_content()}")
 
 if __name__ == "__main__":
     main()
