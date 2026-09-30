@@ -1,19 +1,20 @@
 name: AbleSci Auto Sign
-
 on:
   workflow_dispatch:
   schedule:
-    - cron: '40 13,23 * * *'  # UTC时间(北京时间为21:40和次日7:40)
+    # UTC 13:40 = 北京时间 21:40
+    # UTC 23:40 = 北京时间 次日 07:40
+    - cron: '40 13,23 * * *'
 
 jobs:
   sign:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
@@ -27,18 +28,29 @@ jobs:
         id: sign
         run: |
           python ablesci.py > output.log
-          LOG_CONTENT=$(cat output.log)
-          echo "LOG_CONTENT<<EOF" >> $GITHUB_ENV
-          echo "$LOG_CONTENT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          LOG_CONTENT="$(cat output.log)"
+
+          # 安全地通过 heredoc 设置 step output（处理任意特殊字符）
+          {
+            echo 'log_content<<EOF'
+            echo "${LOG_CONTENT}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          # 同时设置一个供通知模块使用的环境变量
+          {
+            echo 'SLOG_CONTENT<<EOF'
+            echo "${LOG_CONTENT}"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
         env:
           GITHUB_ACTIONS: true
           ABLESCI_ACCOUNTS: ${{ secrets.ABLESCI_ACCOUNTS }}
-          # 选择一种通知服务
-          # SCKEY: ${{ secrets.SCKEY }}          # Server酱
-          # XZKEY: ${{ secrets.XZKEY }}        # 息知 (按需启用)
-          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }} # PushPlus (按需启用)
+          # 选择一种通知服务（按需启用）
+          # SCKEY: ${{ secrets.SCKEY }}           # Server酱
+          XXKEY: ${{ secrets.XXKEY }}             # 息知
+          PUSH_PLUS_TOKEN: ${{ secrets.PUSH_PLUS_TOKEN }}  # PushPlus
 
       - name: Display Log
         run: |
-          echo "$LOG_CONTENT"
+          echo "${{ steps.sign.outputs.log_content }}"
